@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-مبدل و جمع‌آوری خودکار کانفیگ‌های V2Ray به Clash
-نسخه بهینه‌شده با سرعت بالا، لیمیت استاندارد و گروه‌بندی هوشمند
+مبدل اختصاصی Vless/Vmess/Hysteria2 به Clash Meta (Mihomo)
+نسخه آپدیت شده: حذف تروجان و شادوساکس، اضافه شدن Hy2 و افزایش ظرفیت خروجی
 """
 
 import re
@@ -27,7 +27,6 @@ CONFIG = {
         "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS_mobile.txt",
         "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-checked.txt",
         "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt",
-        "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_SS+All_RUS.txt",
         "https://raw.githubusercontent.com/Mosifree/-FREE2CONFIG/refs/heads/main/FRAGMENT",
         "https://raw.githubusercontent.com/ShadowException/VPN/refs/heads/main/configs/VPN-cat",
         "https://raw.githubusercontent.com/F0rc3Run/F0rc3Run/main/splitted-by-protocol/vless.txt",
@@ -40,7 +39,6 @@ CONFIG = {
         "https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub",
         "https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray.txt",
         "https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt",
-        "https://mifa.world/ss",
         "https://empty-mouse-fbb7.alizareh4024.workers.dev/sync?sub=%D8%B3%D9%88%D8%B3%D9%85%D8%A7%D8%B1%F0%9F%A6%8E",
         "https://raw.githubusercontent.com/pytimusprime/FreeV2ray/refs/heads/main/all_servers.txt",
         "https://raw.githubusercontent.com/ThomasJasperthecat/sub/main/sublist1.txt",
@@ -55,11 +53,11 @@ CONFIG = {
         "https://raw.githubusercontent.com/barry-far/V2ray-config/main/All_Configs_base64_Sub.txt",
         "https://v2.alicivil.workers.dev"
     ],
-    "FETCH_TIMEOUT": 7,          # ثانیه برای دریافت هر URL
-    "FETCH_WORKERS": 15,         # دانلود همزمان لینک‌ها
-    "TCP_TIMEOUT": 2,            # کاهش تایم‌اوت به ۲ ثانیه برای عبور سریع از نودهای مرده
-    "TCP_WORKERS": 200,          # افزایش شدید تردها برای تست فوق سریع پینگ
-    "MAX_OUTPUT_NODES": 150,     # تعداد استاندارد و نهایی نودها در خروجی
+    "FETCH_TIMEOUT": 7,          
+    "FETCH_WORKERS": 15,         
+    "TCP_TIMEOUT": 2,            
+    "TCP_WORKERS": 200,          
+    "MAX_OUTPUT_NODES": 600,     # چهار برابر شدن تعداد خروجی
     "OUTPUT_FILE": "Tehronstore.yaml",
     "PROXY_NAME_PREFIX": "Tehronstore",
 }
@@ -80,14 +78,17 @@ def fetch_text(url: str) -> Optional[str]:
 
 def extract_links_from_text(text: str) -> List[str]:
     links = []
-    if not any(proto in text for proto in ["vmess://", "vless://", "trojan://", "ss://"]):
+    # جستجو فقط برای vmess, vless و hy2
+    if not any(proto in text for proto in ["vmess://", "vless://", "hy2://"]):
         try:
             decoded = base64.b64decode(text.strip()).decode('utf-8', errors='ignore')
-            if any(proto in decoded for proto in ["vmess://", "vless://", "trojan://", "ss://"]):
+            if any(proto in decoded for proto in ["vmess://", "vless://", "hy2://"]):
                 text = decoded
         except Exception:
             pass
-    pattern = r'(vmess://[^\s]+|vless://[^\s]+|trojan://[^\s]+|ss://[^\s]+)'
+    
+    # حذف پترن‌های تروجان و شادوساکس
+    pattern = r'(vmess://[^\s]+|vless://[^\s]+|hy2://[^\s]+)'
     raw_links = re.findall(pattern, text)
     for link in raw_links:
         link = link.strip()
@@ -95,12 +96,10 @@ def extract_links_from_text(text: str) -> List[str]:
             links.append(link)
     return links
 
-# توابع Parse (بدون تغییر نسبت به نسخه اصلی، به دلیل عملکرد صحیح)
 def parse_proxy(link: str) -> Optional[Dict]:
     if link.startswith("vmess://"): return parse_vmess(link)
     elif link.startswith("vless://"): return parse_vless(link)
-    elif link.startswith("trojan://"): return parse_trojan(link)
-    elif link.startswith("ss://"): return parse_ss(link)
+    elif link.startswith("hy2://"): return parse_hy2(link)
     return None
 
 def parse_vmess(link: str) -> Optional[Dict]:
@@ -118,32 +117,28 @@ def parse_vless(link: str) -> Optional[Dict]:
         return {"type": "vless", "server": parsed.hostname, "port": parsed.port or 443, "uuid": parsed.username or "", "cipher": params.get("encryption", ["none"])[0], "tls": params.get("security", [""])[0] in ["tls", "reality"], "skip-cert-verify": params.get("allowInsecure", ["0"])[0] == "1" or params.get("skip-cert-verify", ["false"])[0] == "true", "network": params.get("type", ["tcp"])[0], "ws-path": params.get("path", [""])[0], "ws-host": params.get("host", [""])[0], "sni": params.get("sni", [""])[0] or parsed.hostname, "flow": params.get("flow", [""])[0]}
     except: return None
 
-def parse_trojan(link: str) -> Optional[Dict]:
+def parse_hy2(link: str) -> Optional[Dict]:
     try:
         parsed = urlparse(link)
         params = parse_qs(parsed.query)
-        return {"type": "trojan", "server": parsed.hostname, "port": parsed.port or 443, "password": parsed.username or "", "sni": params.get("sni", [parsed.hostname])[0], "skip-cert-verify": params.get("allowInsecure", ["0"])[0] == "1" or params.get("skip-cert-verify", ["false"])[0] == "true", "tls": True, "network": "tcp"}
+        return {
+            "type": "hysteria2",
+            "server": parsed.hostname,
+            "port": parsed.port or 443,
+            "password": parsed.username or "",
+            "sni": params.get("sni", [""])[0] or parsed.hostname,
+            "skip-cert-verify": params.get("insecure", ["0"])[0] == "1" or params.get("skip-cert-verify", ["false"])[0] == "true"
+        }
     except: return None
 
-def parse_ss(link: str) -> Optional[Dict]:
-    try:
-        raw = link.replace("ss://", "")
-        if "@" in raw:
-            before, after = raw.split("@", 1)
-            try:
-                method, password = base64.b64decode(before).decode('utf-8').split(":", 1)
-            except:
-                method, password = before.split(":", 1)
-            server, port = after.split("#", 1)[0].split(":", 1) if "#" in after else after.split(":", 1)
-        else:
-            method, password = base64.b64decode(raw).decode('utf-8').split("@", 1)[0].split(":", 1)
-            server, port = base64.b64decode(raw).decode('utf-8').split("@", 1)[1].split(":", 1)
-        return {"type": "ss", "server": server, "port": int(port), "method": method, "password": password, "cipher": method}
-    except: return None
-
-# ========================== تست TCP ==========================
+# ========================== تست ارتباط ==========================
 
 def tcp_ping(proxy: Dict) -> Optional[float]:
+    # پروتکل Hysteria2 روی UDP کار می‌کند، تست TCP باعث رد شدن اشتباه آن می‌شود.
+    # بنابراین برای این پروتکل یک عدد پینگ فرضی در نظر می‌گیریم تا مستقیم وارد کانفیگ شود.
+    if proxy.get("type") == "hysteria2":
+        return 99.0 
+
     server, port = proxy.get("server"), proxy.get("port")
     if not server or not port: return None
     try:
@@ -157,7 +152,7 @@ def tcp_ping(proxy: Dict) -> Optional[float]:
         return None
 
 def test_proxies(proxies: List[Dict]) -> List[Dict]:
-    logger.info(f"شروع تست TCP روی {len(proxies)} نود منحصر‌به‌فرد...")
+    logger.info(f"شروع بررسی سلامت روی {len(proxies)} نود منحصر‌به‌فرد...")
     results = []
     with ThreadPoolExecutor(max_workers=CONFIG["TCP_WORKERS"]) as executor:
         future_to_proxy = {executor.submit(tcp_ping, p): p for p in proxies}
@@ -168,13 +163,16 @@ def test_proxies(proxies: List[Dict]) -> List[Dict]:
                 proxy["ping"] = round(ping, 2)
                 results.append(proxy)
     results.sort(key=lambda x: x["ping"])
-    return results[:CONFIG["MAX_OUTPUT_NODES"]] # اعمال سقف خروجی
+    return results[:CONFIG["MAX_OUTPUT_NODES"]]
 
 # ========================== تولید YAML Clash ==========================
 
 def build_clash_config(proxies: List[Dict]) -> str:
     for idx, p in enumerate(proxies, start=1):
-        p["name"] = f"☬ {CONFIG['PROXY_NAME_PREFIX']}-{idx:02d} | {int(p['ping'])}ms"
+        if p["type"] == "hysteria2":
+            p["name"] = f"☬ {CONFIG['PROXY_NAME_PREFIX']}-HY2-{idx:02d}"
+        else:
+            p["name"] = f"☬ {CONFIG['PROXY_NAME_PREFIX']}-{idx:02d} | {int(p['ping'])}ms"
 
     clash_proxies = []
     for p in proxies:
@@ -188,10 +186,14 @@ def build_clash_config(proxies: List[Dict]) -> str:
             if p.get("network") == "ws": entry["ws-opts"] = {"path": p.get("ws-path", "/"), "headers": {"Host": p.get("ws-host", "")}}
             if p.get("sni"): entry["sni"] = p["sni"]
             if p.get("flow"): entry["flow"] = p["flow"]
-        elif p["type"] == "trojan":
-            entry.update({"password": p.get("password", ""), "sni": p.get("sni", p["server"]), "skip-cert-verify": p.get("skip-cert-verify", False), "network": "tcp"})
-        elif p["type"] == "ss":
-            entry.update({"password": p.get("password", ""), "cipher": p.get("cipher", "")})
+        elif p["type"] == "hysteria2":
+            entry.update({
+                "password": p.get("password", ""),
+                "sni": p.get("sni", p["server"]),
+                "skip-cert-verify": p.get("skip-cert-verify", False),
+                "alpn": ["h3"]
+            })
+        
         clash_proxies.append(entry)
 
     proxy_names = [p["name"] for p in proxies]
@@ -229,7 +231,6 @@ def main():
     logger.info("شروع پردازش موازی سورس‌ها...")
     all_links = []
     
-    # دریافت موازی لینک‌ها (افزایش چشمگیر سرعت)
     with ThreadPoolExecutor(max_workers=CONFIG["FETCH_WORKERS"]) as executor:
         future_to_url = {executor.submit(fetch_text, url): url for url in CONFIG["INPUT_URLS"]}
         for future in as_completed(future_to_url):
@@ -239,7 +240,6 @@ def main():
 
     logger.info(f"تعداد کل لینک‌های استخراج شده: {len(all_links)}")
 
-    # فیلتر تکراری‌ها بر اساس IP و Port (نه صرفاً رشته متنی)
     unique_proxies = {}
     for link in all_links:
         p = parse_proxy(link)
@@ -255,19 +255,17 @@ def main():
         logger.error("هیچ پراکسی معتبری یافت نشد.")
         return
 
-    # تست TCP روی نودهای فیلترشده
     active_proxies = test_proxies(proxies_list)
 
     if not active_proxies:
         logger.error("هیچ پراکسی فعالی پس از تست باقی نماند.")
         return
 
-    # تولید و ذخیره YAML نهایی
     yaml_content = build_clash_config(active_proxies)
     with open(CONFIG["OUTPUT_FILE"], "w", encoding="utf-8") as f:
         f.write(yaml_content)
         
-    logger.info(f"عملیات موفق! فایل {CONFIG['OUTPUT_FILE']} با {len(active_proxies)} پراکسی سبک و استاندارد ذخیره شد.")
+    logger.info(f"عملیات موفق! فایل {CONFIG['OUTPUT_FILE']} با {len(active_proxies)} پراکسی ذخیره شد.")
 
 if __name__ == "__main__":
     main()
